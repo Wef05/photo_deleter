@@ -9,9 +9,9 @@
 - 渐变背景 + 卡片式照片浏览 UI
 
 ## 代码位置
-- `/home/runner/work/photo_deleter/photo_deleter/iOS/PhotoDeleter/PhotoDeleterApp.swift`
-- `/home/runner/work/photo_deleter/photo_deleter/iOS/PhotoDeleter/ContentView.swift`
-- `/home/runner/work/photo_deleter/photo_deleter/iOS/PhotoDeleter/PhotoCleanerViewModel.swift`
+- `iOS/PhotoDeleter/PhotoDeleterApp.swift`
+- `iOS/PhotoDeleter/ContentView.swift`
+- `iOS/PhotoDeleter/PhotoCleanerViewModel.swift`
 
 ## 在 Xcode 中运行
 1. 新建一个 iOS App（SwiftUI）工程。

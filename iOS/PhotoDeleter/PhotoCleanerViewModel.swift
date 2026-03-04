@@ -10,10 +10,13 @@ final class PhotoCleanerViewModel: ObservableObject {
     private var assets: [PHAsset] = []
     private var index = 0
     private var actions: [Action] = []
+    private var pendingDeletionAssets: [PHAsset] = []
+    private let imageLoadLock = NSLock()
 
     struct Action {
         let index: Int
         let type: Decision
+        let assetIdentifier: String?
     }
 
     enum Decision {
@@ -43,7 +46,7 @@ final class PhotoCleanerViewModel: ObservableObject {
         await loadCurrentImage()
     }
 
-    func markDelete() {
+    func markForDeletion() {
         apply(.delete)
     }
 
@@ -53,6 +56,15 @@ final class PhotoCleanerViewModel: ObservableObject {
 
     func undo() {
         guard let last = actions.popLast() else { return }
+        switch last.type {
+        case .delete:
+            if let assetIdentifier = last.assetIdentifier,
+               let pendingIndex = pendingDeletionAssets.firstIndex(where: { $0.localIdentifier == assetIdentifier }) {
+                pendingDeletionAssets.remove(at: pendingIndex)
+            }
+        case .skip:
+            break
+        }
         index = last.index
         finished = false
         Task { await loadCurrentImage() }
@@ -60,10 +72,21 @@ final class PhotoCleanerViewModel: ObservableObject {
 
     private func apply(_ decision: Decision) {
         guard index < assets.count else { return }
-        actions.append(Action(index: index, type: decision))
+        switch decision {
+        case .delete:
+            pendingDeletionAssets.append(assets[index])
+            actions.append(Action(index: index, type: decision, assetIdentifier: assets[index].localIdentifier))
+        case .skip:
+            actions.append(Action(index: index, type: decision, assetIdentifier: nil))
+        }
         index += 1
         finished = index >= assets.count
-        Task { await loadCurrentImage() }
+        Task {
+            await loadCurrentImage()
+            if finished {
+                await deleteMarkedAssets()
+            }
+        }
     }
 
     private func loadCurrentImage() async {
@@ -80,11 +103,46 @@ final class PhotoCleanerViewModel: ObservableObject {
         options.resizeMode = .fast
 
         await withCheckedContinuation { continuation in
+            var didResume = false
+            var timeoutTask: Task<Void, Never>?
+            let resume: () -> Void = {
+                self.imageLoadLock.lock()
+                defer { self.imageLoadLock.unlock() }
+                guard !didResume else { return }
+                didResume = true
+                timeoutTask?.cancel()
+                continuation.resume()
+            }
+
+            timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                resume()
+            }
+
             manager.requestImage(for: target,
                                  targetSize: CGSize(width: 1200, height: 1200),
                                  contentMode: .aspectFill,
-                                 options: options) { [weak self] image, _ in
-                self?.currentImage = image
+                                 options: options) { [weak self] image, info in
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if degraded { return }
+
+                Task { @MainActor in
+                    self?.currentImage = image
+                }
+                resume()
+            }
+        }
+    }
+
+    private func deleteMarkedAssets() async {
+        guard !pendingDeletionAssets.isEmpty else { return }
+        let toDelete = pendingDeletionAssets
+        pendingDeletionAssets.removeAll()
+
+        await withCheckedContinuation { continuation in
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.deleteAssets(toDelete as NSArray)
+            }) { _, _ in
                 continuation.resume()
             }
         }

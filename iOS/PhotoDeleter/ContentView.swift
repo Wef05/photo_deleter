@@ -67,11 +67,18 @@ struct ContentView: View {
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragOffset)
         .gesture(
             DragGesture()
-                .onChanged { dragOffset = $0.translation }
+                .onChanged {
+                    guard viewModel.currentImage != nil, !viewModel.finished else { return }
+                    dragOffset = $0.translation
+                }
                 .onEnded { value in
+                    guard viewModel.currentImage != nil, !viewModel.finished else {
+                        dragOffset = .zero
+                        return
+                    }
                     let threshold: CGFloat = 110
                     if value.translation.width < -threshold {
-                        viewModel.markDelete()
+                        viewModel.markForDeletion()
                     } else if value.translation.width > threshold {
                         viewModel.skip()
                     }
@@ -83,13 +90,14 @@ struct ContentView: View {
     private var controls: some View {
         HStack(spacing: 14) {
             Button {
-                viewModel.markDelete()
+                viewModel.markForDeletion()
             } label: {
                 Label("左滑删除", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
+            .disabled(viewModel.finished || viewModel.currentImage == nil)
 
             Button {
                 viewModel.skip()
@@ -99,6 +107,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.blue)
+            .disabled(viewModel.finished || viewModel.currentImage == nil)
         }
         .font(.headline)
         .foregroundStyle(.white)
